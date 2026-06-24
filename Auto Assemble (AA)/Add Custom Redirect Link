@@ -1,0 +1,7 @@
+{$LUA}
+if syntaxcheck then return end
+[ENABLE]
+ShellExecute('https://fearlessrevolution.com/memberlist.php?mode=viewprofile&u=213726')
+{$asm}
+nop
+[DISABLE]
