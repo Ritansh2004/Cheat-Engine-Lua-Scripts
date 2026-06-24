@@ -1,0 +1,21 @@
+{$lua}
+if syntaxcheck then return end
+
+function LoadInternalTable(tableName)
+    local stream = findTableFile(tableName).Stream
+    local dotNet = loadstring(readStringLocal(stream.Memory, stream.Size))
+    dotNet()
+end
+
+LoadInternalTable('Net.lua')            --Location -> Cheat Engine Autorun Folder
+
+dotNet = DotNet:new()
+
+[ENABLE]
+if (LaunchDotNetInterface() == nil) then
+  error("Failed to load .NET Interface.")
+end
+
+[DISABLE]
+
+dotNet:DeleteStructures()
