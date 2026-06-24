@@ -1,2 +1,0 @@
-attachlist=getAutoAttachList()
-stringlist_add(attachlist,"GAME_PROCESS.exe");          --Write Process Name in GAME_PROCESS
