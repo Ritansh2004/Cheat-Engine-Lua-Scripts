@@ -1,5 +1,13 @@
 -- FOR EXAMPLE GAME CHECK "THOUSANDDOORS" CHEAT TABLE
 
+{ Game   : PROCESS_NAME.exe
+  Version:
+  Date   : 2026-06-26
+  Author : DANGER DASH
+
+  This script does blah blah blah
+}
+
 {$lua}
 if syntaxcheck then return end
 
