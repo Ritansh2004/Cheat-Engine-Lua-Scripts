@@ -1,0 +1,49 @@
+-- FOR EXAMPLE GAME CHECK "THOUSANDDOORS" CHEAT TABLE
+
+{$lua}
+if syntaxcheck then return end
+
+[ENABLE]
+-- === CONFIGURATION ===
+local PROCESS_NAME = 'PROCESS_NAME.exe'
+local SCRIPT_NAME  = 'GDumper.lua'                                     -- Location -> CE Autorun Folder
+-- =============================================
+
+-- Process check and attachment
+if not OpenProcess(PROCESS_NAME) then
+    ShowMessage('Game is not running. Is process name "' .. PROCESS_NAME .. '" correct?')
+    error('Cannot attach to process')
+end
+
+-- Script loader function
+local function loadDumperScript()
+    local tableFile = findTableFile(SCRIPT_NAME)
+    if tableFile == nil then error('No script file found: ' .. SCRIPT_NAME) end
+
+    local fileStream = tableFile.getData()
+    local scriptString = readStringLocal(fileStream.Memory, fileStream.Size)
+
+    if scriptString ~= nil then
+        local doScript = loadstring(scriptString)
+        if type(doScript) == 'function' then
+            -- 1. Execute the main dumper script to load its functions into memory
+            doScript()
+
+            -- 2. Automatically initialize the dumper (ACTIVATE)
+            if type(gd_initDumper) == 'function' then
+                gd_initDumper({useHardcoded = true})
+            else
+                error('gd_initDumper function was not found after loading the script')
+            end
+        else
+            error('Script could not be parsed')
+        end
+    else
+        error('Script could not be loaded from file')
+    end
+end
+
+-- Run the loader
+loadDumperScript()
+
+[DISABLE]
