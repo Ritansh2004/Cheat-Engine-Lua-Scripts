@@ -14,9 +14,9 @@ This repository serves as a showcase of my utility scripts that enhance the Chea
 
 ### Method 2: Using Auto-Assemble Scripts
 1. Open **Cheat Engine**.
-2. 2. Press `Ctrl + Alt + A` to open the **Auto Assemble** window.
+2. Press `Ctrl + Alt + A` to open the **Auto Assemble** window.
 3. Copy the code from any `Auto Assemble` file in this repository and paste it into the Auto Assemble.
-4. 4. Click **Execute** to run the script.
+4. Click **Execute** to run the script.
 
 ### Method 3: Autorun Setup (Permanent execution)
 1. Download the desired `.lua` script from this repository.
