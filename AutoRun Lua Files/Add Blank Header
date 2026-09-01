@@ -1,0 +1,26 @@
+--=========================================
+-- Cheat Engine AutoRun Script
+-- Direct "Header" menu button
+--=========================================
+
+local function AddBlankHeader(sender)
+
+    local al = getAddressList()
+    local mr = al.createMemoryRecord()
+
+    mr.IsGroupHeader = true
+    mr.Description = "New Header"
+    mr.Address = ""
+
+end
+
+-- Prevent duplicate menu if script reloads
+if HeaderMenu == nil then
+
+    HeaderMenu = createMenuItem(MainForm.Menu)
+    HeaderMenu.Caption = "Add Header"
+    HeaderMenu.OnClick = AddBlankHeader
+
+    MainForm.Menu.Items.add(HeaderMenu)
+
+end
