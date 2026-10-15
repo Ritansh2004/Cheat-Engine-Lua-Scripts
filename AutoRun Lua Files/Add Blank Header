@@ -5,10 +5,9 @@ local function addHeader(sender)
   local al = getAddressList()
   if not al then return end
 
-  local name = inputQuery('Add Header', 'Header name (blank = New Header):', 'New Header')
+  local name = inputQuery('Add Header', 'Header name (leave empty for a blank header):', 'New Header')
   if name == nil then return end -- cancelled
   name = name:match('^%s*(.-)%s*$')
-  if name == '' then name = 'New Header' end
 
   local selected = {}
   local okSelection, selection = pcall(function() return al.getSelectedRecords() end)
