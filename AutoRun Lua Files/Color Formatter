@@ -5,6 +5,7 @@
 
 local SCRIPT_YELLOW = 0x80FFFF
 local MONO_COLOR = 0xFF8080
+local INSTANCE_COLOR = 0x8000FF -- from color.CT
 local ADDRESS_WHITE = 0xFFFFFF
 local HEADER_COLORS = {0x80FF80, 0x80FF00, 0xFFFF80, 0xFF8000, 0xC080FF}
 
@@ -28,8 +29,13 @@ local function expectedColor(mr, white)
     end
     return HEADER_COLORS[math.min(level, #HEADER_COLORS)]
   end
+  -- Instance: exact name, 8 Bytes, displayed in hexadecimal.
+  -- The Address may be a symbol such as health_ptr; it need not be a literal hex number.
+  local name = tostring(mr.Description or ''):match('^%s*(.-)%s*$'):lower()
+  if name == 'instance' and mr.Type == vtQword and mr.ShowAsHex then
+    return INSTANCE_COLOR
+  end
   if mr.Type == vtAutoAssembler then
-    local name = tostring(mr.Description or ''):match('^%s*(.-)%s*$'):lower()
     return name == 'initialize mono' and MONO_COLOR or SCRIPT_YELLOW
   end
   return ADDRESS_WHITE
@@ -119,6 +125,7 @@ local function recordSignature(mr)
   local parent = mr.Parent
   return tostring(mr.Description or '') .. '\0' ..
          tostring(mr.Type) .. '\0' ..
+         tostring(mr.ShowAsHex) .. '\0' ..
          tostring(isHeader(mr)) .. '\0' ..
          tostring(parent and parent.ID or '') .. '\0' ..
          tostring(expectedColor(mr, false))
@@ -181,9 +188,9 @@ CTColorFormatterMenu.OnClick = nil
 
 addItem(CTColorFormatterMenu, 'CTColorApplyItem', 'Apply Colors', function() applyColors(false) end)
 addItem(CTColorFormatterMenu, 'CTColorWhiteItem', 'Set Default', function() applyColors(true) end)
-addItem(CTColorFormatterMenu, 'CTColorUndoItem', 'Undo Last Color Change', undoLast)
+addItem(CTColorFormatterMenu, 'CTColorUndoItem', 'Undo Last Change', undoLast)
 
-local autoItem = addItem(CTColorFormatterMenu, 'CTColorAutoItem', 'Auto Color New Records', function()
+local autoItem = addItem(CTColorFormatterMenu, 'CTColorAutoItem', 'Auto Color Records', function()
   state.auto = not state.auto
   if state.auto then rememberCurrentRecords() end
   CTColorAutoItem.Checked = state.auto
