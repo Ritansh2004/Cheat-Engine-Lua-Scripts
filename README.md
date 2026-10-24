@@ -20,7 +20,7 @@ This repository serves as a showcase of my utility scripts that enhance the Chea
 
 ### Method 3: Autorun Setup (Permanent execution)
 1. Download the desired `.lua` script from this repository.
-2. Move/Paste the script into your Cheat Engine **`autorun`** folder (Usually located at `C:\Program Files\Cheat Engine\autorun\custom`).
+2. Move/Paste the script into your Cheat Engine **`custom`** folder (Usually located at `C:\Program Files\Cheat Engine\autorun\custom`).
 3. Restart Cheat Engine. The script will now load automatically every time you open Cheat Engine!
 
 ---
