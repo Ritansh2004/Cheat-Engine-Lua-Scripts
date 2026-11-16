@@ -232,7 +232,9 @@ local function expectedColor(mr, white)
   if mr.Type == vtAutoAssembler then
     return name == 'initialize mono' and MONO_COLOR or SCRIPT_YELLOW
   end
-  return ADDRESS_WHITE
+  -- Unclassified/normal addresses are intentionally left at Cheat Engine's color.
+  -- Set Default still returns white through the early 'white' check above.
+  return nil
 end
 
 local function recordKey(mr)
@@ -261,12 +263,15 @@ local function applyColors(white)
   local changed, failed, snapshot = 0, 0, {}
   for _, mr in ipairs(records) do
     local ok, err = pcall(function()
-      local before = tonumber(mr.Color)
       local wanted = expectedColor(mr, white)
-      if normalize(before) ~= wanted then
-        mr.Color = wanted
-        snapshot[#snapshot+1] = {record=mr, id=recordKey(mr), color=before}
-        changed = changed + 1
+      -- nil means this record has no automatic color rule; leave it untouched.
+      if wanted ~= nil then
+        local before = tonumber(mr.Color)
+        if normalize(before) ~= wanted then
+          mr.Color = wanted
+          snapshot[#snapshot+1] = {record=mr, id=recordKey(mr), color=before}
+          changed = changed + 1
+        end
       end
     end)
     if not ok then
@@ -353,7 +358,10 @@ local function autoTick()
         current[key] = {record=mr, signature=signature}
         if not old or old.record ~= mr or old.signature ~= signature then
           local wanted = expectedColor(mr, false)
-          if normalize(mr.Color) ~= wanted then mr.Color = wanted end
+          -- Only records with a defined rule are recolored automatically.
+          if wanted ~= nil and normalize(mr.Color) ~= wanted then
+            mr.Color = wanted
+          end
         end
       end)
       if not ok then print('Auto color error: ' .. tostring(err)) end
@@ -997,3 +1005,165 @@ ByteDropdownMenu.Caption='Dropdown Formatter'
 ByteDropdownMenu.OnClick=applyFormatter
 end
 
+-- ===== Add Initialize Mono and PROFILE LINK scripts =====
+do
+-- Adds the same two Auto Assembler entries used in the supplied modified CT.
+-- Initialize Mono takes the executable name from the process currently opened
+-- in Cheat Engine, so no manual process-name edit is needed.
+
+local PROFILE_LINK_SCRIPT = [=[
+{$LUA}
+if syntaxcheck then return end
+[ENABLE]
+ShellExecute('https://fearlessrevolution.com/memberlist.php?mode=viewprofile&u=213726')
+{$asm}
+nop
+[DISABLE]
+]=]
+
+local function getOpenedProcessName()
+  local openedPID = getOpenedProcessID()
+  if not openedPID or openedPID == 0 then return nil end
+
+  -- getOpenedProcessID() and the process variable can retain stale values
+  -- after Cheat Engine closes/detaches from a process. Verify memory is readable.
+  local moduleName = process
+  if type(moduleName) ~= 'string' or moduleName == '' then return nil end
+  local readable, moduleValue = pcall(readInteger, moduleName)
+  if not readable or moduleValue == nil then return nil end
+
+  -- getProcesslist() returns a PID -> executable-name table.
+  local ok, processList = pcall(getProcesslist)
+  if not ok or type(processList) ~= 'table' then return nil end
+
+  local processName = processList[openedPID] or processList[tostring(openedPID)]
+  if type(processName) == 'string' and processName ~= '' then
+    return processName
+  end
+
+  -- Also handle process-list tables whose PID keys are strings/hex strings.
+  for listedPID, listedName in pairs(processList) do
+    local matches = tonumber(listedPID) == tonumber(openedPID)
+    if not matches and type(listedPID) == 'string' then
+      local hexPID = listedPID:gsub('^0[xX]', '')
+      if hexPID:match('^%x+$') then
+        matches = tonumber(hexPID, 16) == tonumber(openedPID)
+      end
+    end
+    if matches and type(listedName) == 'string' and listedName ~= '' then
+      return listedName
+    end
+  end
+
+  return nil
+end
+
+local function buildInitializeMonoScript(processName)
+  local template = [=[
+[ENABLE]
+{$lua}
+if syntaxcheck then return end
+
+local processName = %s
+local pid = getProcessIDFromProcessName(processName)
+
+if (pid == 0 or pid == nil) then
+    -- 1. Notify the user
+    showMessage("Start Game Process First..!!!")
+    -- 2. Force the script to "crash" out of the Enable phase
+    error("Process not found")
+else
+    -- Process found, proceed
+    openProcess(processName)
+    mono_initialize()
+    LaunchMonoDataCollector()
+    beep()                                               --For Sound
+    showMessage("Made By DANGER DASH...!!!")             --Pop Up Message
+end
+{$asm}
+
+[DISABLE]
+{$lua}
+if process then
+    showMessage('Table Disabled!')
+end
+{$asm}
+]=]
+  return string.format(template, string.format('%q', processName))
+end
+
+local function addOrUpdateScript(description, scriptText)
+  local addressList = getAddressList()
+  if not addressList then
+    showMessage('Address list is unavailable.')
+    return
+  end
+
+  local existing = nil
+  for i = 0, addressList.Count - 1 do
+    local record = addressList[i]
+    if record and tostring(record.Description or '') == description then
+      existing = record
+      break
+    end
+  end
+
+  local record = existing
+  local created = false
+  local ok, err = pcall(function()
+    if record then
+      if record.Type ~= vtAutoAssembler then
+        error('An entry named "' .. description .. '" already exists, but it is not an Auto Assembler script.')
+      end
+      if record.Active then
+        error('"' .. description .. '" is currently enabled. Disable it first, then click again to update it.')
+      end
+      record.Script = scriptText
+      record.Color = 0xFFFFFF
+    else
+      record = addressList.createMemoryRecord()
+      created = true
+      record.Description = description
+      record.Type = vtAutoAssembler
+      record.Script = scriptText
+      record.Color = 0xFFFFFF
+    end
+  end)
+
+  if not ok then
+    if created and record then pcall(function() record.destroy() end) end
+    showMessage('Could not add ' .. description .. ': ' .. tostring(err))
+    return
+  end
+
+  -- Success is silent; only errors are reported.
+end
+
+local function addInitializeMono(sender)
+  local processName = getOpenedProcessName()
+  if not processName or processName == '' then
+    showMessage('No live process is currently open in Cheat Engine. Open the target process first.')
+    return
+  end
+  addOrUpdateScript('Initialize Mono', buildInitializeMonoScript(processName))
+end
+
+local function addProfileLink(sender)
+  addOrUpdateScript('PROFILE LINK', PROFILE_LINK_SCRIPT)
+end
+
+-- Reuse menu items if this autorun file is executed again.
+if AddInitializeMonoMenuItem == nil then
+  AddInitializeMonoMenuItem = createMenuItem(ExtensionMenu)
+  ExtensionMenu.add(AddInitializeMonoMenuItem)
+end
+AddInitializeMonoMenuItem.Caption = 'Add Initialize Mono'
+AddInitializeMonoMenuItem.OnClick = addInitializeMono
+
+if AddProfileLinkMenuItem == nil then
+  AddProfileLinkMenuItem = createMenuItem(ExtensionMenu)
+  ExtensionMenu.add(AddProfileLinkMenuItem)
+end
+AddProfileLinkMenuItem.Caption = 'Add PROFILE LINK'
+AddProfileLinkMenuItem.OnClick = addProfileLink
+end
