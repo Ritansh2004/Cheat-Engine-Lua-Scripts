@@ -6,6 +6,36 @@ if ExtensionMenu == nil then
 end
 ExtensionMenu.Caption = 'Extensions'
 
+-- ===== Extensions submenu groups =====
+-- Table Tools: Find & Replace, Add Header, Dropdown Formatter
+-- Color Formatter: existing group, kept at the Extensions top level
+-- Script Tools: Add Initialize Mono, Add PROFILE LINK
+-- Auto Script/Header Config remains a separate top-level item with no checkbox UI.
+if TableToolsMenu == nil then
+  TableToolsMenu = createMenuItem(ExtensionMenu)
+  ExtensionMenu.add(TableToolsMenu)
+end
+TableToolsMenu.Caption = 'Table Tools'
+
+-- Move pre-existing menu items into their new groups when this file is
+-- reloaded in the same Cheat Engine session.
+local function ensureMenuParent(item, target)
+  if not item or not target then return end
+  local ok, currentParent = pcall(function() return item.Parent end)
+  if not ok or currentParent ~= target then
+    local moved, moveError = pcall(function() target.add(item) end)
+    if not moved then
+      print('Extensions menu grouping error: ' .. tostring(moveError))
+    end
+  end
+end
+
+ensureMenuParent(ReplaceMenu, TableToolsMenu)
+ensureMenuParent(HeaderMenu, TableToolsMenu)
+ensureMenuParent(ByteDropdownMenu, TableToolsMenu)
+ensureMenuParent(AddInitializeMonoMenuItem, ScriptToolsMenu)
+ensureMenuParent(AddProfileLinkMenuItem, ScriptToolsMenu)
+
 -- ===== Find And Replace =====
 do
 local function plainReplace(str, findStr, replaceStr)
@@ -74,11 +104,61 @@ local function replaceRecord(mr, findStr, replaceStr)
     return count
 end
 
+-- Count distinct records that contain the search text in Description or Address.
+-- Child records are traversed recursively and de-duplicated by record ID/object.
+local function countMatchingRecord(record, findStr, seen, depth)
+    if not record or depth > 256 then return 0 end
+
+    local okID, recordID = pcall(function() return record.ID end)
+    local key = (okID and recordID ~= nil) and ('ID:' .. tostring(recordID)) or record
+    if seen[key] then return 0 end
+    seen[key] = true
+
+    local matched = false
+    local okDescription, description = pcall(function() return record.Description end)
+    if okDescription and type(description) == 'string' and description:find(findStr, 1, true) then
+        matched = true
+    end
+
+    if not matched then
+        local okAddress, address = pcall(function() return record.Address end)
+        if okAddress and type(address) == 'string' and address:find(findStr, 1, true) then
+            matched = true
+        end
+    end
+
+    local total = matched and 1 or 0
+    local okCount, childCount = pcall(function() return record.Count end)
+    childCount = okCount and tonumber(childCount) or 0
+    if childCount and childCount > 0 then
+        for i = 0, childCount - 1 do
+            local okChild, child = pcall(function() return record.Child[i] end)
+            if okChild and child then
+                total = total + countMatchingRecord(child, findStr, seen, depth + 1)
+            end
+        end
+    end
+
+    return total
+end
+
+local function countMatchingRecords(addressList, findStr)
+    if not addressList or not findStr or findStr == '' then return 0 end
+    local total, seen = 0, {}
+    for i = 0, addressList.Count - 1 do
+        local okRecord, record = pcall(function() return addressList[i] end)
+        if okRecord and record then
+            total = total + countMatchingRecord(record, findStr, seen, 0)
+        end
+    end
+    return total
+end
+
 local function FindAndReplace(sender)
     local form = createForm(true)
     form.Caption = "Find & Replace"
     form.Width = 300
-    form.Height = 140
+    form.Height = 165
     form.Position = "poScreenCenter"
     form.BorderStyle = "bsDialog"
 
@@ -102,10 +182,41 @@ local function FindAndReplace(sender)
     edtReplace.Top = 42
     edtReplace.Width = 180
 
+    local lblMatching = createLabel(form)
+    lblMatching.Caption = 'Matching records: 0'
+    lblMatching.Left = 10
+    lblMatching.Top = 73
+    lblMatching.Width = 270
+
+    local function refreshMatchCount()
+        local findStr = edtFind.Text or ''
+        if findStr == '' then
+            lblMatching.Caption = 'Matching records: 0'
+            return
+        end
+
+        local al = getAddressList()
+        if not al then
+            lblMatching.Caption = 'Matching records: unavailable'
+            return
+        end
+
+        local ok, count = pcall(countMatchingRecords, al, findStr)
+        if ok then
+            lblMatching.Caption = string.format('Matching records: %d', count)
+        else
+            lblMatching.Caption = 'Matching records: unavailable'
+            print('Find & Replace match counter: ' .. tostring(count))
+        end
+    end
+
+    -- Update the preview live while the user types in Find what.
+    edtFind.OnChange = refreshMatchCount
+
     local btnReplaceAll = createButton(form)
     btnReplaceAll.Caption = "Replace All"
     btnReplaceAll.Left = 100
-    btnReplaceAll.Top = 80
+    btnReplaceAll.Top = 105
     btnReplaceAll.Width = 90
 
     btnReplaceAll.OnClick = function()
@@ -118,23 +229,29 @@ local function FindAndReplace(sender)
         end
 
         local al = getAddressList()
-        local totalReplaced = 0
+        if not al then
+            showMessage('Address list is unavailable.')
+            return
+        end
 
+        local totalReplaced = 0
         for i = 0, al.Count - 1 do
             totalReplaced = totalReplaced + replaceRecord(al[i], findStr, replaceStr)
         end
 
+        refreshMatchCount()
         showMessage(string.format("Replaced %d occurrence(s).", totalReplaced))
     end
 
+    refreshMatchCount()
     form.show()
 end
 
 if ReplaceMenu == nil then
-    ReplaceMenu = createMenuItem(ExtensionMenu)
+    ReplaceMenu = createMenuItem(TableToolsMenu)
     ReplaceMenu.Caption = "Find And Replace"
     ReplaceMenu.OnClick = FindAndReplace
-    ExtensionMenu.add(ReplaceMenu)
+    TableToolsMenu.add(ReplaceMenu)
 end
 end
 
@@ -183,9 +300,9 @@ end
 
 -- Reuse the menu item on script reload; always refresh callback.
 if HeaderMenu == nil then
-  HeaderMenu = createMenuItem(ExtensionMenu)
+  HeaderMenu = createMenuItem(TableToolsMenu)
   HeaderMenu.Caption = 'Add Header'
-  ExtensionMenu.add(HeaderMenu)
+  TableToolsMenu.add(HeaderMenu)
 end
 HeaderMenu.OnClick = addHeader
 end
@@ -201,6 +318,8 @@ local SCRIPT_YELLOW = 0x80FFFF
 local MONO_COLOR = 0xFF8080
 local INSTANCE_COLOR = 0x8000FF -- from color.CT
 local ADDRESS_WHITE = 0xFFFFFF
+local VALUE_SHOW_UPDATE_COLOR = 0x0000FF -- Red in Cheat Engine's BGR color format
+local VALUE_SHOW_UPDATE_PREFIX = 'value show/update when'
 local HEADER_COLORS = {0x80FF80, 0x80FF00, 0xFFFF80, 0xFF8000, 0xC080FF}
 
 -- Persistent within the CE session, including autorun script reloads.
@@ -215,6 +334,13 @@ end
 local function expectedColor(mr, white)
   if white then return ADDRESS_WHITE end
   if isHeader(mr) then
+    -- Special header names always get red, regardless of nesting level.
+    -- Matching is case-insensitive and ignores accidental leading/trailing spaces.
+    local headerName = tostring(mr.Description or ''):match('^%s*(.-)%s*$'):lower()
+    if headerName:sub(1, #VALUE_SHOW_UPDATE_PREFIX) == VALUE_SHOW_UPDATE_PREFIX then
+      return VALUE_SHOW_UPDATE_COLOR
+    end
+
     local level, parent, safety = 1, mr.Parent, 0
     while parent and safety < 1000 do
       if isHeader(parent) then level = level + 1 end
@@ -388,6 +514,16 @@ end
 CTColorFormatterMenu.Caption = 'Color Formatter'
 CTColorFormatterMenu.OnClick = nil
 
+
+-- Create Script Tools after Color Formatter to preserve the requested group order.
+if ScriptToolsMenu == nil then
+  ScriptToolsMenu = createMenuItem(ExtensionMenu)
+  ExtensionMenu.add(ScriptToolsMenu)
+end
+ScriptToolsMenu.Caption = 'Script Tools'
+ensureMenuParent(AddInitializeMonoMenuItem, ScriptToolsMenu)
+ensureMenuParent(AddProfileLinkMenuItem, ScriptToolsMenu)
+
 addItem(CTColorFormatterMenu, 'CTColorApplyItem', 'Apply Colors', function() applyColors(false) end)
 addItem(CTColorFormatterMenu, 'CTColorWhiteItem', 'Set Default', function() applyColors(true) end)
 addItem(CTColorFormatterMenu, 'CTColorUndoItem', 'Undo Last Change', undoLast)
@@ -395,8 +531,10 @@ addItem(CTColorFormatterMenu, 'CTColorUndoItem', 'Undo Last Change', undoLast)
 local autoItem = addItem(CTColorFormatterMenu, 'CTColorAutoItem', 'Auto Color Records', function()
   state.auto = not state.auto
   if state.auto then rememberCurrentRecords() end
+  -- Use Cheat Engine's native menu checkmark in the left gutter.
   CTColorAutoItem.Checked = state.auto
 end)
+-- Keep the native checkmark synchronized with the real initial state.
 autoItem.Checked = state.auto
 rememberCurrentRecords()
 
@@ -998,8 +1136,8 @@ end
 
 -- Reuse original menu object so rerunning this file does not add duplicates.
 if ByteDropdownMenu==nil then
-  ByteDropdownMenu=createMenuItem(ExtensionMenu)
-  ExtensionMenu.add(ByteDropdownMenu)
+  ByteDropdownMenu=createMenuItem(TableToolsMenu)
+  TableToolsMenu.add(ByteDropdownMenu)
 end
 ByteDropdownMenu.Caption='Dropdown Formatter'
 ByteDropdownMenu.OnClick=applyFormatter
@@ -1154,16 +1292,286 @@ end
 
 -- Reuse menu items if this autorun file is executed again.
 if AddInitializeMonoMenuItem == nil then
-  AddInitializeMonoMenuItem = createMenuItem(ExtensionMenu)
-  ExtensionMenu.add(AddInitializeMonoMenuItem)
+  AddInitializeMonoMenuItem = createMenuItem(ScriptToolsMenu)
+  ScriptToolsMenu.add(AddInitializeMonoMenuItem)
 end
 AddInitializeMonoMenuItem.Caption = 'Add Initialize Mono'
 AddInitializeMonoMenuItem.OnClick = addInitializeMono
 
 if AddProfileLinkMenuItem == nil then
-  AddProfileLinkMenuItem = createMenuItem(ExtensionMenu)
-  ExtensionMenu.add(AddProfileLinkMenuItem)
+  AddProfileLinkMenuItem = createMenuItem(ScriptToolsMenu)
+  ScriptToolsMenu.add(AddProfileLinkMenuItem)
 end
 AddProfileLinkMenuItem.Caption = 'Add PROFILE LINK'
 AddProfileLinkMenuItem.OnClick = addProfileLink
 end
+
+
+-- ===== Auto Script / Header Config =====
+do
+-- Automatically applies the requested group settings to newly added or
+-- structurally changed Auto Assembler scripts and group headers.
+-- Scripts: moHideChildren + moAllowManualCollapseAndExpand + start collapsed.
+-- Headers: moHideChildren only.
+-- This toggle follows the same baseline-on-enable behavior as Auto Color.
+
+CTAutoGroupConfigState = CTAutoGroupConfigState or {auto=false, seen={}}
+local groupConfigState = CTAutoGroupConfigState
+groupConfigState.auto = false -- OFF by default when this autorun file loads
+
+local GROUP_CONFIG_OPTION_ORDER = {
+  'moHideChildren',
+  'moActivateChildrenAsWell',
+  'moDeactivateChildrenAsWell',
+  'moRecursiveSetValue',
+  'moAllowManualCollapseAndExpand',
+  'moManualExpandCollapse',
+  'moAlwaysHideChildren'
+}
+local GROUP_CONFIG_VALID_OPTIONS = {}
+for _, optionName in ipairs(GROUP_CONFIG_OPTION_ORDER) do
+  GROUP_CONFIG_VALID_OPTIONS[optionName] = true
+end
+
+local function groupConfigIsHeader(record)
+  return record.IsGroupHeader or record.IsAddressGroupHeader
+end
+
+local function groupConfigRecordKey(record)
+  local ok, id = pcall(function() return record.ID end)
+  if ok and id ~= nil then return tostring(id) end
+  return tostring(record)
+end
+
+-- AddressList.Count may include entries that are also reachable as children.
+-- Recursion plus ID de-duplication safely covers both flat and nested layouts.
+local function groupConfigCollectRecords(addressList)
+  local records, seen = {}, {}
+
+  local function visit(record, depth)
+    if not record or depth > 256 then return end
+    local key = groupConfigRecordKey(record)
+    if seen[key] then return end
+    seen[key] = true
+    records[#records+1] = record
+
+    local okCount, childCount = pcall(function() return record.Count end)
+    childCount = okCount and tonumber(childCount) or 0
+    if childCount and childCount > 0 then
+      for i = 0, childCount - 1 do
+        local okChild, child = pcall(function() return record.Child[i] end)
+        if okChild and child then visit(child, depth + 1) end
+      end
+    end
+  end
+
+  for i = 0, addressList.Count - 1 do
+    local okRecord, record = pcall(function() return addressList[i] end)
+    if okRecord and record then visit(record, 0) end
+  end
+
+  return records
+end
+
+-- Add only the requested flags while preserving other known CE options.
+local function groupConfigEnsureOptions(record, requiredOptions)
+  local okRead, current = pcall(function() return record.Options end)
+  if not okRead then
+    return false, 'Could not read MemoryRecord.Options: ' .. tostring(current)
+  end
+
+  local present = {}
+  for name in tostring(current or ''):gmatch('[%a_][%w_]*') do
+    if GROUP_CONFIG_VALID_OPTIONS[name] then present[name] = true end
+  end
+  for _, name in ipairs(requiredOptions) do present[name] = true end
+
+  local ordered = {}
+  for _, name in ipairs(GROUP_CONFIG_OPTION_ORDER) do
+    if present[name] then ordered[#ordered+1] = name end
+  end
+  local wanted = '[' .. table.concat(ordered, ',') .. ']'
+  if tostring(current or '') ~= wanted then
+    local okWrite, err = pcall(function() record.Options = wanted end)
+    if not okWrite then
+      return false, 'Could not write MemoryRecord.Options: ' .. tostring(err)
+    end
+  end
+  return true
+end
+
+-- NoScriptTag is present in the supplied modified CT XML, but is not exposed
+-- by the documented MemoryRecord Lua API in standard Cheat Engine builds.
+-- Feature-detect it so compatible builds can use it without breaking others.
+local function groupConfigTryNoScriptTag(record)
+  if groupConfigState.noScriptTagSupported == false then return end
+
+  local ok, valueOrError = pcall(function()
+    record.NoScriptTag = true
+    return record.NoScriptTag
+  end)
+  if ok and valueOrError == true then
+    groupConfigState.noScriptTagSupported = true
+  else
+    groupConfigState.noScriptTagSupported = false
+    if not groupConfigState.noScriptTagNoticeShown then
+      groupConfigState.noScriptTagNoticeShown = true
+      print('Auto Script/Header Config: this Cheat Engine Lua API does not expose a working NoScriptTag property; that XML attribute was skipped.')
+    end
+  end
+end
+
+-- The CT Group Config dialog exposes 'Default state collapsed' only after
+-- moAllowManualCollapseAndExpand is enabled. In some CE builds this flag is
+-- serialized in the Options XML but is not listed in the public Lua docs.
+-- Try it after the documented option is set, verify the read-back, and keep
+-- the documented options intact if this CE build does not support the flag.
+local function groupConfigEnsureDefaultCollapsed(record)
+  local okRead, current = pcall(function() return record.Options end)
+  if not okRead then return false, 'Could not read options for Default state collapsed: ' .. tostring(current) end
+
+  local currentText = tostring(current or '')
+  if currentText:find('moDefaultCollapsed', 1, true) then return true end
+
+  local base = currentText:gsub('%s+', '')
+  if base == '' or base == '[]' then
+    base = '[moDefaultCollapsed]'
+  else
+    base = base:gsub('%]$', ',moDefaultCollapsed]')
+  end
+
+  local okWrite, writeErr = pcall(function() record.Options = base end)
+  if not okWrite then
+    return false, 'This Cheat Engine build rejected moDefaultCollapsed: ' .. tostring(writeErr)
+  end
+
+  local okVerify, after = pcall(function() return record.Options end)
+  if okVerify and tostring(after or ''):find('moDefaultCollapsed', 1, true) then
+    return true
+  end
+
+  -- Restore the prior supported options if the unknown flag was ignored.
+  pcall(function() record.Options = currentText end)
+  return false, 'This Cheat Engine build does not expose moDefaultCollapsed through MemoryRecord.Options.'
+end
+
+local function groupConfigApply(record)
+  local okType, recordType = pcall(function() return record.Type end)
+  if not okType then return end
+
+  if recordType == vtAutoAssembler then
+    local ok, err = groupConfigEnsureOptions(record, {
+      'moHideChildren',
+      'moAllowManualCollapseAndExpand'
+    })
+    if not ok then
+      print('Auto Script/Header Config (' .. tostring(record.Description) .. '): ' .. tostring(err))
+    else
+      local okDefault, defaultErr = groupConfigEnsureDefaultCollapsed(record)
+      if not okDefault and not groupConfigState.defaultCollapsedNoticeShown then
+        groupConfigState.defaultCollapsedNoticeShown = true
+        print('Auto Script/Header Config: ' .. tostring(defaultErr))
+      end
+    end
+
+    -- Also collapse the current row immediately. This runtime state is
+    -- separate from the persistent Group Config 'Default state collapsed' flag.
+    local okCollapsed, collapsedErr = pcall(function() record.Collapsed = true end)
+    if not okCollapsed then
+      print('Auto Script/Header Config collapse (' .. tostring(record.Description) .. '): ' .. tostring(collapsedErr))
+    end
+
+    groupConfigTryNoScriptTag(record)
+  elseif groupConfigIsHeader(record) then
+    local ok, err = groupConfigEnsureOptions(record, {'moHideChildren'})
+    if not ok then
+      print('Auto Script/Header Config (' .. tostring(record.Description) .. '): ' .. tostring(err))
+    end
+  end
+end
+
+local function groupConfigSignature(record)
+  local parent = record.Parent
+  local parentID = parent and parent.ID or ''
+  return tostring(record.Description or '') .. '\0' ..
+         tostring(record.Type) .. '\0' ..
+         tostring(groupConfigIsHeader(record)) .. '\0' ..
+         tostring(parentID)
+end
+
+local function groupConfigRememberCurrentRecords()
+  local addressList = getAddressList()
+  groupConfigState.seen = {}
+  if not addressList then return end
+
+  for _, record in ipairs(groupConfigCollectRecords(addressList)) do
+    local ok, signature = pcall(groupConfigSignature, record)
+    if ok then
+      groupConfigState.seen[groupConfigRecordKey(record)] = {
+        record=record,
+        signature=signature
+      }
+    end
+  end
+end
+
+local function groupConfigAutoTick()
+  if not groupConfigState.auto then return end
+  local addressList = getAddressList()
+  if not addressList then return end
+
+  local current = {}
+  for _, record in ipairs(groupConfigCollectRecords(addressList)) do
+    local key = groupConfigRecordKey(record)
+    local ok, err = pcall(function()
+      local signature = groupConfigSignature(record)
+      local old = groupConfigState.seen[key]
+      current[key] = {record=record, signature=signature}
+      if not old or old.record ~= record or old.signature ~= signature then
+        groupConfigApply(record)
+      end
+    end)
+    if not ok then
+      print('Auto Script/Header Config timer error: ' .. tostring(err))
+    end
+  end
+  groupConfigState.seen = current
+end
+
+-- Reuse the menu item if the autorun file is executed again.
+if AutoScriptHeaderConfigItem == nil then
+  AutoScriptHeaderConfigItem = createMenuItem(ExtensionMenu)
+  ExtensionMenu.add(AutoScriptHeaderConfigItem)
+end
+AutoScriptHeaderConfigItem.Caption = 'Auto Script/Header Config'
+AutoScriptHeaderConfigItem.OnClick = function()
+  groupConfigState.auto = not groupConfigState.auto
+  if groupConfigState.auto then
+    groupConfigRememberCurrentRecords()
+  end
+  -- Use the same native menu checkmark behavior as Auto Color Records.
+  AutoScriptHeaderConfigItem.Checked = groupConfigState.auto
+end
+-- Both toggles show their native checkmark only when enabled.
+AutoScriptHeaderConfigItem.Checked = groupConfigState.auto
+
+groupConfigRememberCurrentRecords()
+
+if AutoScriptHeaderConfigTimer == nil then
+  AutoScriptHeaderConfigTimer = createTimer(MainForm, false)
+  AutoScriptHeaderConfigTimer.Interval = 750
+end
+AutoScriptHeaderConfigTimer.OnTimer = function()
+  local ok, err = pcall(groupConfigAutoTick)
+  if not ok then print('Auto Script/Header Config timer callback: ' .. tostring(err)) end
+end
+AutoScriptHeaderConfigTimer.Enabled = true
+end
+
+
+-- Final menu-parent pass (also covers items that existed before this reload).
+ensureMenuParent(ReplaceMenu, TableToolsMenu)
+ensureMenuParent(HeaderMenu, TableToolsMenu)
+ensureMenuParent(ByteDropdownMenu, TableToolsMenu)
+ensureMenuParent(AddInitializeMonoMenuItem, ScriptToolsMenu)
+ensureMenuParent(AddProfileLinkMenuItem, ScriptToolsMenu)
