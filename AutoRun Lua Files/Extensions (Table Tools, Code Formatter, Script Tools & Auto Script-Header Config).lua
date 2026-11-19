@@ -1455,11 +1455,78 @@ local function groupConfigEnsureDefaultCollapsed(record)
   return false, 'This Cheat Engine build does not expose moDefaultCollapsed through MemoryRecord.Options.'
 end
 
+-- Initialize Mono is a special Auto Assembler entry. Its Group Config
+-- must contain exactly the two options shown in the supplied test.CT:
+-- Hide children when deactivated + Deactivating this entry deactivates its children.
+-- Unlike regular scripts, do not add collapse, arrow-key, Default Collapsed,
+-- or NoScriptTag behavior to this special entry.
+local function groupConfigSetExactOptions(record, requiredOptions)
+  local okRead, current = pcall(function() return record.Options end)
+  if not okRead then
+    return false, 'Could not read MemoryRecord.Options: ' .. tostring(current)
+  end
+
+  local required = {}
+  for _, name in ipairs(requiredOptions) do required[name] = true end
+
+  local ordered = {}
+  for _, name in ipairs(GROUP_CONFIG_OPTION_ORDER) do
+    if required[name] then ordered[#ordered+1] = name end
+  end
+  local wanted = '[' .. table.concat(ordered, ',') .. ']'
+
+  if tostring(current or '') ~= wanted then
+    local okWrite, writeErr = pcall(function() record.Options = wanted end)
+    if not okWrite then
+      return false, 'Could not set the exact Initialize Mono options: ' .. tostring(writeErr)
+    end
+  end
+
+  local okVerify, after = pcall(function() return record.Options end)
+  if not okVerify then
+    pcall(function() record.Options = current end)
+    return false, 'Could not verify Initialize Mono options: ' .. tostring(after)
+  end
+
+  local found = {}
+  for name in tostring(after or ''):gmatch('[%a_][%w_]*') do
+    if GROUP_CONFIG_VALID_OPTIONS[name] or name == 'moDefaultCollapsed' then
+      found[name] = true
+    end
+  end
+  for name in pairs(required) do
+    if not found[name] then
+      pcall(function() record.Options = current end)
+      return false, 'Cheat Engine did not retain required option: ' .. name
+    end
+  end
+  for name in pairs(found) do
+    if not required[name] then
+      pcall(function() record.Options = current end)
+      return false, 'Cheat Engine retained an extra Group Config option: ' .. name
+    end
+  end
+
+  return true
+end
+
 local function groupConfigApply(record)
   local okType, recordType = pcall(function() return record.Type end)
   if not okType then return end
 
   if recordType == vtAutoAssembler then
+    local scriptName = tostring(record.Description or ''):match('^%s*(.-)%s*$'):lower()
+    if scriptName == 'initialize mono' then
+      local ok, err = groupConfigSetExactOptions(record, {
+        'moHideChildren',
+        'moDeactivateChildrenAsWell'
+      })
+      if not ok then
+        print('Auto Script/Header Config (Initialize Mono): ' .. tostring(err))
+      end
+      return
+    end
+
     local ok, err = groupConfigEnsureOptions(record, {
       'moHideChildren',
       'moAllowManualCollapseAndExpand'
