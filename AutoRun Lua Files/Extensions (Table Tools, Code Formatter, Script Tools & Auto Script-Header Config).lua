@@ -1458,8 +1458,8 @@ end
 -- Initialize Mono is a special Auto Assembler entry. Its Group Config
 -- must contain exactly the two options shown in the supplied test.CT:
 -- Hide children when deactivated + Deactivating this entry deactivates its children.
--- Unlike regular scripts, do not add collapse, arrow-key, Default Collapsed,
--- or NoScriptTag behavior to this special entry.
+-- Unlike regular scripts, do not add collapse, arrow-key, or Default Collapsed
+-- behavior to this special entry. NoScriptTag is explicitly enabled for it too.
 local function groupConfigSetExactOptions(record, requiredOptions)
   local okRead, current = pcall(function() return record.Options end)
   if not okRead then
@@ -1524,6 +1524,9 @@ local function groupConfigApply(record)
       if not ok then
         print('Auto Script/Header Config (Initialize Mono): ' .. tostring(err))
       end
+      -- Initialize Mono also requires NoScriptTag, in addition to its two
+      -- exact Group Config options. This does not add any other Group Config flags.
+      groupConfigTryNoScriptTag(record)
       return
     end
 
